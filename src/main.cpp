@@ -1,18 +1,212 @@
 #include <Arduino.h>
+#include "secrets.h"
 
-// put function declarations here:
-int myFunction(int, int);
+
+#include <WiFi.h>
+#include <PubSubClient.h>
+#include <Adafruit_NeoPixel.h>
+
+//Experiment with an ESP32C3, combined with a small solar panel (6V panel) and a Lipo Battery. 
+//Contents: 
+//  Measures the Solar voltage (10k-20k VoltageDivider)
+//  Battery voltage (10k-10k voltage divivder)
+//  Combined with a water level sensor (Touch = Water present!) 
+//  Data is being sent via MQTT
+
+WiFiClient espClient;
+PubSubClient client(espClient);
+unsigned long lastMsg = 0;
+
+
+// Pin deinitions
+const int WaterPin = 6;
+const int BattPin_Analog = A2;
+const int PanelPin_Analog = A3;
+
+//Function prototypes
+void setup_wifi();
+float readPanelVoltage();
+float readBatteryVoltage();
+void reconnect();
+void callback(char*, byte*, unsigned int);
+void setup_wifi();
+bool WaterLevelHigh();
+void deep_sleep();
+void SetLED(int,int,int); 
+
+//Setup the NeoPixel
+Adafruit_NeoPixel LED = Adafruit_NeoPixel(1, 7, NEO_RGB + NEO_KHZ800);
 
 void setup() {
-  // put your setup code here, to run once:
-  int result = myFunction(2, 3);
+  Serial.begin(460800);
+  LED.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
+  LED.clear(); // Set all pixel colors to 'off'
+  LED.show();            // Turn OFF all pixels ASAP
+  
+  
+  LED.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
+  SetLED(127,0,0);            // Turn OFF all pixels ASAP
+
+  //delay(7500);    //Delay to allow for serial monitor to connect 
+  SetLED(0,0,0);
+
+  Serial.begin(460800);
+  Serial.println("Starting up...\n");
+
+  esp_sleep_enable_timer_wakeup(30 * 1000000);    //30 seconds deep sleep (30 * 1000000 us)
+  
+  
+  SetLED(0,0,127);
+  setup_wifi();
+
+  SetLED(0,127,0);
+  client.setServer(Broker, Port);
+  client.setCallback(callback);
+
+  pinMode(WaterPin, INPUT_PULLUP);
+  SetLED(0,0,0);
 }
+
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  if (!client.connected()) {
+    reconnect();
+  }
+  client.loop();
+
+  unsigned long now = millis();
+  if (now - lastMsg > 5000) {
+    lastMsg = now;
+
+    //LED Green
+    SetLED(0,127,0);
+
+    //Read Sensor data
+    float BatteryVoltage = readBatteryVoltage();
+    float PanelVoltage = readPanelVoltage();
+    bool WaterLevel = WaterLevelHigh();
+
+    //Convert the values to char arrays
+    char battString[8];
+    char panelString[8];
+    char waterString[12];
+
+    if (WaterLevel == true) {
+      strcpy(waterString, "Water High");
+    } 
+    else {
+      strcpy(waterString, "Water Low");
+    }
+    dtostrf(BatteryVoltage, 1, 2, battString);
+    dtostrf(PanelVoltage, 1, 2, panelString);
+
+    //Print
+    Serial.printf("Battery Voltage: %sV.\n", battString);
+    Serial.printf("Panel Voltage: %sV.\n", panelString);
+    Serial.printf("Water Level: %s.\n", waterString);
+
+
+    //Upload
+    client.publish(Topic, battString);
+    client.publish(Topic, panelString);
+    client.publish(Topic, waterString);
+
+    //LED off
+    SetLED(0,000,0);
+
+    //Deep sleep (30s)
+    //deep_sleep();
+    Serial.println("Should be sleeping now, but disabled for testing.");
+  }
 }
 
-// put function definitions here:
-int myFunction(int x, int y) {
-  return x + y;
+
+
+
+//-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=
+// Read battery voltage ()Voltage divider 10k-10k)
+float readBatteryVoltage() {
+  int sensorValue = analogRead(BattPin_Analog);
+  float BatteryVoltage = sensorValue * (3.3 / 4096.0) * 2;    // 2x voltage divider
+  return BatteryVoltage;
+}
+
+// Read Solar panel voltage (Voltage divider 10k-20k)
+float readPanelVoltage() {
+  int sensorValue = analogRead(PanelPin_Analog);
+  float PanelVoltage = sensorValue * (3.3 / 4096.0) * 3;    // 3x voltage divider
+  return PanelVoltage;
+}
+
+//Read waterlvlPin, returns true if water is present
+bool WaterLevelHigh() {
+  bool WaterLevel = !digitalRead(WaterPin);
+  return WaterLevel;
+}
+
+
+//-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=
+//Helper functions
+
+//Deep sleep function
+void deep_sleep() {
+  Serial.println("\nGoing to sleep now.\n\n\n");
+  delay(10);
+  esp_deep_sleep_start();
+}
+
+void setup_wifi() {
+  WiFi.mode(WIFI_STA);
+  WiFi.disconnect();
+
+  Serial.printf("\nConnecting to %S ", SSID);
+  WiFi.begin(SSID, PASSWORD);
+
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+
+  Serial.println("\nWiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+//MQTT Callback function
+void callback(char* topic, byte* message, unsigned int length) {
+  String messageTemp;
+
+  Serial.printf("Message arrived on topic: \"%S\": \"", topic);
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println("\".");
+}
+
+void reconnect() {
+  while (!client.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    
+    // Attempt to connect
+    if (client.connect("ESP32_C3(Th)")) {
+      Serial.println("connected");
+      // Subscribe
+      client.subscribe(Topic);
+    } 
+    
+    else {
+      Serial.print("failed, rc=");
+      Serial.print(client.state());
+      Serial.println(" try again in 5 seconds");
+      // Wait 5 seconds before retrying
+      delay(5000);
+    }
+  }
+}
+
+void SetLED(int R, int G, int B) {
+  LED.setPixelColor(0, LED.Color(R, G, B));
+  LED.show();
 }
