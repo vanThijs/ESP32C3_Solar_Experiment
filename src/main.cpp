@@ -1,3 +1,15 @@
+//Experiment with an ESP32C3, combined with a small solar panel (6V panel) and a Lipo Battery. 
+//Contents: 
+//  Measures the Solar voltage (10k-20k VoltageDivider)
+//  Battery voltage (10k-10k voltage divivder)
+//  Combined with a water level sensor (Touch = Water present!) 
+//  Data is being sent via MQTT
+
+//ToDo: 
+//  * Test power consumption
+//  * Test deep sleep peripherals
+
+
 #include <Arduino.h>
 #include "secrets.h"
 
@@ -6,13 +18,7 @@
 #include <PubSubClient.h>
 #include <Adafruit_NeoPixel.h>
 
-//Experiment with an ESP32C3, combined with a small solar panel (6V panel) and a Lipo Battery. 
-//Contents: 
-//  Measures the Solar voltage (10k-20k VoltageDivider)
-//  Battery voltage (10k-10k voltage divivder)
-//  Combined with a water level sensor (Touch = Water present!) 
-//  Data is being sent via MQTT
-
+//WiFi and MQTT
 WiFiClient espClient;
 PubSubClient client(espClient);
 unsigned long lastMsg = 0;
@@ -69,11 +75,6 @@ void setup() {
 
 
 void loop() {
-  if (!client.connected()) {
-    reconnect();
-  }
-  client.loop();
-
   unsigned long now = millis();
   if (now - lastMsg > 5000) {
     lastMsg = now;
@@ -105,6 +106,10 @@ void loop() {
     Serial.printf("Panel Voltage: %sV.\n", panelString);
     Serial.printf("Water Level: %s.\n", waterString);
 
+    if (!client.connected()) {
+      reconnect();
+    }
+    client.loop();
 
     //Upload
     client.publish(Topic, battString);
@@ -114,9 +119,13 @@ void loop() {
     //LED off
     SetLED(0,000,0);
 
+    //Disconnect
+    delay(500);
+    WiFi.disconnect();
+
     //Deep sleep (30s)
-    //deep_sleep();
-    Serial.println("Should be sleeping now, but disabled for testing.");
+    deep_sleep();
+    //Serial.println("Should be sleeping now, but disabled for testing.");
   }
 }
 
@@ -150,7 +159,7 @@ bool WaterLevelHigh() {
 
 //Deep sleep function
 void deep_sleep() {
-  Serial.println("\nGoing to sleep now.\n\n\n");
+  //Serial.println("\nGoing to sleep now.\n\n\n");
   delay(10);
   esp_deep_sleep_start();
 }
