@@ -8,11 +8,11 @@
 //ToDo: 
 //  * Test power consumption
 //  * Test deep sleep peripherals
+//  * Test is INPUT_PULLUP is still active in deep sleep
 
 
 #include <Arduino.h>
 #include "secrets.h"
-
 
 #include <WiFi.h>
 #include <PubSubClient.h>
@@ -20,7 +20,7 @@
 
 //WiFi and MQTT
 WiFiClient espClient;
-PubSubClient client(espClient);
+PubSubClient PS_client(espClient);
 unsigned long lastMsg = 0;
 
 
@@ -33,7 +33,7 @@ const int PanelPin_Analog = A3;
 void setup_wifi();
 float readPanelVoltage();
 float readBatteryVoltage();
-void reconnect();
+void reconnectMQTT();
 void callback(char*, byte*, unsigned int);
 void setup_wifi();
 bool WaterLevelHigh();
@@ -49,16 +49,16 @@ void setup() {
   LED.clear(); // Set all pixel colors to 'off'
   LED.show();            // Turn OFF all pixels ASAP
   
-  
   LED.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
-  SetLED(127,0,0);            // Turn OFF all pixels ASAP
-
   //delay(7500);    //Delay to allow for serial monitor to connect 
-  SetLED(0,0,0);
-
+  
   Serial.begin(460800);
   Serial.println("Starting up...\n");
 
+  //Set the ADC resolution to 12 bits
+  analogReadResolution(12);
+
+  //Configure the deep sleep
   esp_sleep_enable_timer_wakeup(30 * 1000000);    //30 seconds deep sleep (30 * 1000000 us)
   
   
@@ -66,8 +66,8 @@ void setup() {
   setup_wifi();
 
   SetLED(0,127,0);
-  client.setServer(Broker, Port);
-  client.setCallback(callback);
+  PS_client.setServer(Broker, Port);
+  PS_client.setCallback(callback);
 
   pinMode(WaterPin, INPUT_PULLUP);
   SetLED(0,0,0);
@@ -96,7 +96,7 @@ void loop() {
       strcpy(waterString, "Water High");
     } 
     else {
-      strcpy(waterString, "Water Low");
+      strcpy(waterString, "Water OK");
     }
     dtostrf(BatteryVoltage, 1, 2, battString);
     dtostrf(PanelVoltage, 1, 2, panelString);
@@ -106,22 +106,28 @@ void loop() {
     Serial.printf("Panel Voltage: %sV.\n", panelString);
     Serial.printf("Water Level: %s.\n", waterString);
 
-    if (!client.connected()) {
-      reconnect();
+    if (!PS_client.connected()) {
+      reconnectMQTT();
     }
-    client.loop();
+    PS_client.loop();
 
     //Upload
-    client.publish(Topic, battString);
-    client.publish(Topic, panelString);
-    client.publish(Topic, waterString);
+    PS_client.publish(Topic, battString);
+    PS_client.publish(Topic, panelString);
+    PS_client.publish(Topic, waterString);
 
     //LED off
-    SetLED(0,000,0);
+    SetLED(0,0,0);
 
     //Disconnect
     delay(500);
     WiFi.disconnect();
+    
+    //Disable RF hardware before sleep
+    WiFi.mode(WIFI_OFF);
+
+    //Disable GPIO6 (WaterSensor Pin)
+    digitalWrite(WaterPin, LOW);    //Unsure if the pullup is still active in deep sleep, to be tested!
 
     //Deep sleep (30s)
     deep_sleep();
@@ -140,10 +146,10 @@ float readBatteryVoltage() {
   return BatteryVoltage;
 }
 
-// Read Solar panel voltage (Voltage divider 10k-20k)
+// Read Solar panel voltage (Voltage divider 10k-22k)
 float readPanelVoltage() {
   int sensorValue = analogRead(PanelPin_Analog);
-  float PanelVoltage = sensorValue * (3.3 / 4096.0) * 3;    // 3x voltage divider
+  float PanelVoltage = sensorValue * (3.3 / 4096.0) * 3.2;    // Convert the voltage divided value back (10k-22k)
   return PanelVoltage;
 }
 
@@ -194,20 +200,20 @@ void callback(char* topic, byte* message, unsigned int length) {
   Serial.println("\".");
 }
 
-void reconnect() {
-  while (!client.connected()) {
+void reconnectMQTT() {
+  while (!PS_client.connected()) {
     Serial.print("Attempting MQTT connection...");
     
     // Attempt to connect
-    if (client.connect("ESP32_C3(Th)")) {
+    if (PS_client.connect("ESP32_C3(Th)")) {
       Serial.println("connected");
       // Subscribe
-      client.subscribe(Topic);
+      PS_client.subscribe(Topic);
     } 
     
     else {
       Serial.print("failed, rc=");
-      Serial.print(client.state());
+      Serial.print(PS_client.state());
       Serial.println(" try again in 5 seconds");
       // Wait 5 seconds before retrying
       delay(5000);

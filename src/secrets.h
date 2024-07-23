@@ -1,6 +1,6 @@
 //WiFi settings
 const char* SSID = "GastWifi";
-const char* PASSWORD = "GastInternet";
+const char* PASSWORD = "GastInternet2";
 
 //MQTT settings
 #define Broker "broker.hivemq.com"
