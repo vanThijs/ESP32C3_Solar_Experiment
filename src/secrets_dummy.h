@@ -5,4 +5,8 @@ const char* PASSWORD = "WiFiPassword";
 //MQTT settings
 #define Broker "broker.hivemq.com"
 #define Port 1883
-#define Topic "Topicname"
+
+#define BAT_Topic "Battery"
+#define PANEL_Topic "Panel"
+#define Level_Topic "Level"
+#define Sub_Topic "SubTop"

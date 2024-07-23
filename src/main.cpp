@@ -59,8 +59,8 @@ void setup() {
   analogReadResolution(12);
 
   //Configure the deep sleep
-  esp_sleep_enable_timer_wakeup(30 * 1000000);    //30 seconds deep sleep (30 * 1000000 us)
-  
+  esp_sleep_enable_timer_wakeup(SLEEP_DURATION_s * 1000000);    //Sleep duration in seconds
+
   
   SetLED(0,0,127);
   setup_wifi();
@@ -111,10 +111,11 @@ void loop() {
     }
     PS_client.loop();
 
+
     //Upload
-    PS_client.publish(Topic, battString);
-    PS_client.publish(Topic, panelString);
-    PS_client.publish(Topic, waterString);
+    PS_client.publish(BAT_Topic, battString);
+    PS_client.publish(PANEL_Topic, panelString);
+    PS_client.publish(Level_Topic, waterString);
 
     //LED off
     SetLED(0,0,0);
@@ -142,14 +143,14 @@ void loop() {
 // Read battery voltage ()Voltage divider 10k-10k)
 float readBatteryVoltage() {
   int sensorValue = analogRead(BattPin_Analog);
-  float BatteryVoltage = sensorValue * (3.3 / 4096.0) * 2;    // 2x voltage divider
+  float BatteryVoltage = 2 * sensorValue * (3.3 / 4096.0);    // 2x voltage divider
   return BatteryVoltage;
 }
 
 // Read Solar panel voltage (Voltage divider 10k-22k)
 float readPanelVoltage() {
   int sensorValue = analogRead(PanelPin_Analog);
-  float PanelVoltage = sensorValue * (3.3 / 4096.0) * 3.2;    // Convert the voltage divided value back (10k-22k)
+  float PanelVoltage = 3.2 * sensorValue * (3.3 / 4096.0);    // Convert the voltage divided value back (10k-22k)
   return PanelVoltage;
 }
 
@@ -208,7 +209,7 @@ void reconnectMQTT() {
     if (PS_client.connect("ESP32_C3(Th)")) {
       Serial.println("connected");
       // Subscribe
-      PS_client.subscribe(Topic);
+      PS_client.subscribe(Sub_Topic);
     } 
     
     else {
