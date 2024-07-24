@@ -12,6 +12,7 @@
 
 
 #include <Arduino.h>
+#include "driver/adc.h"
 #include "secrets.h"
 
 #include <WiFi.h>
@@ -26,13 +27,13 @@ unsigned long lastMsg = 0;
 
 // Pin deinitions
 const int WaterPin = 6;
-const int BattPin_Analog = A2;
-const int PanelPin_Analog = A3;
+const int BattPin_Analog = 1;
+const int PanelPin_Analog = 3;
 
 //Function prototypes
 void setup_wifi();
-float readPanelVoltage();
-float readBatteryVoltage();
+float readPanelVoltage_mV();
+float readBatteryVoltage_mV();
 void reconnectMQTT();
 void callback(char*, byte*, unsigned int);
 void setup_wifi();
@@ -47,7 +48,7 @@ void setup() {
   Serial.begin(460800);
   LED.begin();           // INITIALIZE NeoPixel strip object (REQUIRED)
   LED.clear(); // Set all pixel colors to 'off'
-  LED.show();            // Turn OFF all pixels ASAP
+  LED.show();            // Turn OFF all pixels
   
   LED.setBrightness(50); // Set BRIGHTNESS to about 1/5 (max = 255)
   //delay(7500);    //Delay to allow for serial monitor to connect 
@@ -56,12 +57,19 @@ void setup() {
   Serial.println("Starting up...\n");
 
   //Set the ADC resolution to 12 bits
-  analogReadResolution(12);
+  analogSetAttenuation(ADC_11db); //set the attenuation to 12dB (0-2500mV)
+  analogReadResolution(12); //set the resolution to 12 bits (0-4095)
 
   //Configure the deep sleep
-  esp_sleep_enable_timer_wakeup(SLEEP_DURATION_s * 1000000);    //Sleep duration in seconds
-
+  //esp_sleep_enable_timer_wakeup(SLEEP_DURATION_s * 1000000);    //Sleep duration in seconds
+  esp_sleep_enable_timer_wakeup(30 * 1000000);    //Sleep duration in seconds
   
+  //Check the battery voltage, if too low, shut down --> ToDo: Test the cutoff voltage
+  if(readBatteryVoltage_mV() < 3.1) {
+    Serial.println("Battery voltage too low, Sleeping...");
+    deep_sleep();
+  }
+
   SetLED(0,0,127);
   setup_wifi();
 
@@ -83,8 +91,8 @@ void loop() {
     SetLED(0,127,0);
 
     //Read Sensor data
-    float BatteryVoltage = readBatteryVoltage();
-    float PanelVoltage = readPanelVoltage();
+    float BatteryVoltage = readBatteryVoltage_mV();
+    float PanelVoltage = readPanelVoltage_mV();
     bool WaterLevel = WaterLevelHigh();
 
     //Convert the values to char arrays
@@ -141,16 +149,18 @@ void loop() {
 
 //-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=
 // Read battery voltage ()Voltage divider 10k-10k)
-float readBatteryVoltage() {
-  int sensorValue = analogRead(BattPin_Analog);
-  float BatteryVoltage = 2 * sensorValue * (3.3 / 4096.0);    // 2x voltage divider
+float readBatteryVoltage_mV() {
+  int sensorValue = analogReadMilliVolts(BattPin_Analog);    //Reads the calibrated voltage from an ADC pin
+  float BatteryVoltage = 2 * sensorValue;    // 2x voltage divider
+  //Serial.printf("Battery Voltage: %fmV.\n", BatteryVoltage);
   return BatteryVoltage;
 }
 
 // Read Solar panel voltage (Voltage divider 10k-22k)
-float readPanelVoltage() {
-  int sensorValue = analogRead(PanelPin_Analog);
-  float PanelVoltage = 3.2 * sensorValue * (3.3 / 4096.0);    // Convert the voltage divided value back (10k-22k)
+float readPanelVoltage_mV() {
+  int sensorValue = analogReadMilliVolts(PanelPin_Analog);    //Reads the calibrated voltage from an ADC pin
+  float PanelVoltage = 3.2 * sensorValue;    // Convert the voltage divided value back (10k-22k)
+  //Serial.printf("Solarpanel Voltage: %fV.\n", PanelVoltage);
   return PanelVoltage;
 }
 
